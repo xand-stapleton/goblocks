@@ -1,0 +1,70 @@
+package main
+
+import (
+	"math"
+	"testing"
+)
+
+func expectedDFDefaultsNmax8() []float64 {
+	return []float64{
+		-2.2795473314862327e-06, 7.748626702197095e-06, 1.745848977040629e-06, -4.0155816182050635e-06,
+		-1.0921776494800961e-05, 1.4854036510905461e-05, 2.0747353102789828e-06, 2.305666217429518e-06,
+		-6.170676999307306e-06, 1.5157487157794738e-06, -2.105997980036283e-06, 4.895461215786577e-07,
+		-1.2318717293797753e-06, 4.295438410816286e-08, 1.3139368579673442e-06, -6.428322005890811e-08,
+		1.3891842507690824e-06, -1.5098304865160148e-06, 7.931895331399112e-08, 2.0555104196855027e-08,
+		-2.9797633842214934e-07, -3.2147211746512445e-08, 3.7320928538975e-07, -2.5578825990849316e-08,
+		2.923741911884674e-07, -3.203565713548732e-07, 1.633049022997422e-08, -5.300169140228195e-08,
+		-1.6573006898539824e-08, 8.464958553451608e-08, 4.6505403585466584e-08, -5.404162604786613e-08,
+		-1.2130761378641623e-09, -9.227013308866691e-09, -5.6561931576817375e-09, 8.135400847714484e-09,
+		-5.782564432953402e-07, 8.712640537077147e-07, 2.073711370798011e-06, -1.7461720616060636e-06,
+		-3.359674838650257e-06, 2.94570364078803e-06, -8.077930559273962e-07, 9.493053478777905e-07,
+		-3.372325437073206e-07, 2.4868388197677676e-06, -2.6942298545776854e-06, 1.7782415152616467e-07,
+		-6.262697898608967e-07, -2.778142686489781e-08, 6.783126114838135e-07, -1.2533483767707397e-09,
+		6.087714255583742e-07, -6.406121125911938e-07, 2.8743022165162112e-08, -4.197306655539703e-09,
+		-1.2022680706670816e-07, -1.86959596778074e-08, 1.381613841008279e-07, 4.3154660998195065e-09,
+		1.0274703999942238e-07, -1.0290967488931216e-07, 3.191530390975298e-09, -1.0938699650300256e-08,
+		-9.855664405070622e-09, 1.578252171627159e-08, -3.227666460308004e-09, 8.024761711340415e-09,
+		9.87646013497592e-09, -5.632647783639523e-09, -2.153836817769323e-08, 1.1651353368286704e-08,
+	}
+}
+
+func runDFDefaultsNmax8(t *testing.T, useNumericDerivs bool) []float64 {
+	t.Helper()
+	rg := NewRecursiveG(10, 10, 0, 10, 3)
+	rd := NewRecursiveDerivatives(*rg, 8, true, useNumericDerivs, false)
+
+	got3D, err := rd.RecurseAndEvaluateDF(
+		[]BlockType{BlockPlus, BlockMinus},
+		1.6,
+		1.2,
+		3.1,
+		[]float64{5.1},
+		[]int{3},
+		100,
+		1e-4,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("RecurseAndEvaluateDF failed (useNumericDerivs=%v): %v", useNumericDerivs, err)
+	}
+
+	return flatten3D(got3D)
+}
+
+func assertCloseSlice(t *testing.T, got, expected []float64, tol float64, label string) {
+	t.Helper()
+	if len(got) != len(expected) {
+		t.Fatalf("%s length mismatch: got %d values, expected %d", label, len(got), len(expected))
+	}
+	for i := range expected {
+		if math.Abs(got[i]-expected[i]) > tol {
+			t.Fatalf("%s mismatch at index %d: got %.18e, expected %.18e (|diff|=%.3e)", label, i, got[i], expected[i], math.Abs(got[i]-expected[i]))
+		}
+	}
+}
+
+func TestRecurseAndEvaluateDFDefaultsNmax8KnownGood(t *testing.T) {
+	got := runDFDefaultsNmax8(t, false)
+	expected := expectedDFDefaultsNmax8()
+	assertCloseSlice(t, got, expected, 1e-14, "non-numeric derivs vs expected")
+}

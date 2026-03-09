@@ -1,0 +1,4 @@
+github.com/scientificgo/special v0.0.2 h1:op6ET2lyLzzRcQ3ahCN1CSd4uz+zOfWqvNlLwWmsQhs=
+github.com/scientificgo/special v0.0.2/go.mod h1:BqiyV7QBWtBCHu7IdcVsPYweRvTcsjMoqUnR4gjcSZk=
+gonum.org/v1/gonum v0.16.0 h1:5+ul4Swaf3ESvrOnidPp4GZbzf0mxVQpDCYUQE7OJfk=
+gonum.org/v1/gonum v0.16.0/go.mod h1:fef3am4MQ93R2HHpKnLk4/Tbh/s0+wqD5nfa6Pnwy4E=
