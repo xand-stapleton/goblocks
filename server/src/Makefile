@@ -31,7 +31,7 @@ GPU ?= 0  # Set to 1 to enable GPU build
 # ========================
 # Default target
 # ========================
-.PHONY: all build clean fmt lint gpu test test-unit test-knowngood test-regression
+.PHONY: all build clean fmt lint gpu test test-unit test-verbose test-knowngood test-regression
 all: build
 
 # ========================
@@ -90,11 +90,13 @@ lint:
 # ========================
 test: test-unit
 
+test-verbose: test-unit
+
 test-unit:
 ifeq ($(GPU),1)
-	go test -tags=gpu -count=1 -run 'Test' ./...
+	go test -v -tags=gpu -count=1 -run 'Test' ./...
 else
-	go test -count=1 -run 'Test' ./...
+	go test -v -count=1 -run 'Test' ./...
 endif
 
 test-knowngood:
