@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both it and the referenced paper."
+  - type: article
+    title: "Efficient Conformal Block Evaluation with GoBlocks"
+    authors:
+      - family-names: Chryssanthacopoulos
+        given-names: J.
+      - family-names: Niarchos
+        given-names: V.
+      - family-names: Papageorgakis
+        given-names: C.
+      - family-names: Stapleton
+        given-names: A. G.
+    year: 2026
+    doi: "10.48550/arXiv.2603.10627"
+    url: "https://arxiv.org/abs/2603.10627"
+
+  - type: software
+    title: "GoBlocks"
+      - family-names: Chryssanthacopoulos
+        given-names: J.
+      - family-names: Niarchos
+        given-names: V.
+      - family-names: Papageorgakis
+        given-names: C.
+      - family-names: Stapleton
+        given-names: A. G.
+    repository-code: "https://github.com/xand-stapleton/goblocks"
+    url: "https://github.com/xand-stapleton/goblocks"
