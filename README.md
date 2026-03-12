@@ -209,4 +209,33 @@ with pool.get() as handle:
 # Free all C handles when finished
 pool.close_all()
 ```
+## Citation
+If you use this repository, please cite! If you use with BootSTOP-multi-objective, please cite that too.
+
+```bibtex
+@article{Chryssanthacopoulos:2026GoBlocks,
+  author  = {Chryssanthacopoulos, James and
+             Niarchos, Vasilis and
+             Papageorgakis, Constantinos and
+             Stapleton, Alexander G.},
+  title   = {Efficient Conformal Block Evaluation with GoBlocks},
+  year    = {2026},
+  eprint  = {2603.10627},
+  archivePrefix = {arXiv},
+  primaryClass  = {hep-th},
+  doi     = {10.48550/arXiv.2603.10627},
+  url     = {https://arxiv.org/abs/2603.10627}
+}
+
+@software{goblocks,
+  author  = {Chryssanthacopoulos, James and
+             Niarchos, Vasilis and
+             Papageorgakis, Constantinos and
+             Stapleton, Alexander G.},
+  title   = {{GoBlocks}},
+  year    = {2026},
+  url     = {https://github.com/xand-stapleton/goblocks}
+}
+```
+
 
