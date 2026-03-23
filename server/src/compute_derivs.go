@@ -146,6 +146,7 @@ func NewRecursiveDerivatives(recG RecursiveG, nMax int, usePrecomputedPhi1, useN
 		derivativeOrdersZZbarFMinus: make([][2]int, 0, len(zZbDerivOrders)),
 		derivativeEvaluatorCache:    NewRetaCache(evaluator, 0.5, 0.5),
 		functionCache:               &FunctionCache{},
+		cachePhi123:                 make(map[phi123Key]float64),
 	}
 
 	// Separate derivative orders by parity
@@ -566,9 +567,6 @@ func (rd *RecursiveDerivatives) buildRMatrix(rPower float64) *mat.Dense {
 
 // derivativeHTilde corresponds to derivative_h_tilde
 func (rd *RecursiveDerivatives) derivativeHTilde(m, n, ell int, r, eta, nu, alpha, beta float64) float64 {
-	if rd.usePrecomputedPhi1 && !floatEquals(r, 3-2*math.Sqrt(2)) && !floatEquals(eta, 1.0) {
-		panic("When using precomputed phi1 derivatives, r and eta must be the crossing symmetric point.")
-	}
 	total := 0.0
 	for i := range n + 1 {
 
@@ -592,6 +590,9 @@ func (rd *RecursiveDerivatives) derivativePhi123(
 
 	// Check cache
 	rd.cacheMu.Lock()
+	if rd.cachePhi123 == nil {
+		rd.cachePhi123 = make(map[phi123Key]float64)
+	}
 	if val, ok := rd.cachePhi123[key]; ok {
 		rd.cacheMu.Unlock()
 		return val
@@ -610,7 +611,7 @@ func (rd *RecursiveDerivatives) derivativePhi123(
 				coefI := rd.factorial(i) / (rd.factorial(i1) * rd.factorial(i2) * rd.factorial(i3))
 				coefJ := rd.factorial(j) / (rd.factorial(j2) * rd.factorial(j3))
 
-				phi1, _ := rd.phi1(i1, 0.0, r, nu)
+				phi1 := rd.phi1(i1, 0, r, nu)
 
 				term := coefI * coefJ
 				term *= phi1
@@ -624,6 +625,9 @@ func (rd *RecursiveDerivatives) derivativePhi123(
 
 	// Update cache
 	rd.cacheMu.Lock()
+	if rd.cachePhi123 == nil {
+		rd.cachePhi123 = make(map[phi123Key]float64)
+	}
 	rd.cachePhi123[key] = result
 	rd.cacheMu.Unlock()
 
@@ -637,15 +641,6 @@ func (rd *RecursiveDerivatives) ClearPhi123Cache() {
 	rd.cacheMu.Unlock()
 }
 
-func (rd *RecursiveDerivatives) phi1(i, j int, r, nu float64) (float64, error) {
-	if rd.usePrecomputedPhi1 {
-		// Error handling is performed downstream
-		return rd.phi1NumericCache.Eval(i, j, r, nu)
-	}
-	// Calculate analytically...
-	return 0, fmt.Errorf("analytic phi1 is not yet implemented")
-}
-
 func (rd *RecursiveDerivatives) phi2(i, j int, r, eta, alpha float64) float64 {
 	return rd.derivativeFwrtrEta(i, j, r, eta, alpha, F_PLUS)
 }
@@ -657,6 +652,11 @@ func (rd *RecursiveDerivatives) phi3(i, j int, r, eta, beta float64) float64 {
 func (rd *RecursiveDerivatives) derivativeFwrtrEta(i, j int, r, eta, exponent float64, fType FType) float64 {
 	result := 0.0
 	for k := range i + 1 {
+		// For k > j, ff(j,k)=0 so the contribution is identically zero.
+		// Skipping avoids 0*Inf -> NaN when r=0 and j-k is negative.
+		if k > j {
+			continue
+		}
 		term := rd.comb(i, k) * rd.ff(float64(j), k) * rd.Pow(r, float64(j-k))
 		term *= rd.derivativeFwrtr(r, eta, float64(i-k), -exponent-float64(j), fType)
 		result += term

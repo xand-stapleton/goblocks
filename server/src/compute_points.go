@@ -10,7 +10,10 @@ import (
 
 // ----------- core API (port of Python) -----------
 
-func (rg *RecursiveG) Recurse(delta12, delta34, r, eta float64, maxIter int, tol float64) {
+// RecurseLegacy runs the original fixed-point iteration algorithm for h.
+//
+// NOTE: This is retained for backwards-compatibility and benchmarking.
+func (rg *RecursiveG) RecurseLegacy(delta12, delta34, r, eta float64, maxIter int, tol float64) {
 	// Reset unique poles
 	rg.unique_poles_map = make(map[PoleKey]int)
 	rg.idxToKey = nil
@@ -18,7 +21,7 @@ func (rg *RecursiveG) Recurse(delta12, delta34, r, eta float64, maxIter int, tol
 	polesData := rg.getAllPolesData(delta12, delta34)
 	numKeys := len(rg.idxToKey)
 	if numKeys == 0 {
-		panic("Recurse: idxToKey is empty")
+		panic("RecurseLegacy: idxToKey is empty")
 	}
 
 	hTilde := make([]float64, numKeys)
@@ -95,6 +98,125 @@ func (rg *RecursiveG) Recurse(delta12, delta34, r, eta float64, maxIter int, tol
 		Delta34:    delta34,
 		PolesData:  polesData,
 		HFinal:     append([]float64(nil), h...),           // copy for safety
+		IndexToKey: append([]PoleKey(nil), rg.idxToKey...), // copy for safety
+		Converged:  converged,
+	}
+}
+
+// Recurse runs an order-by-order (in r) recursion for h.
+//
+// At recursion order p, it uses the Taylor expansion of htilde up to order p
+// (computed via expansion_helpers.go) and only includes pole terms with N <= p
+// in the r^N * c * h_child expansion.
+//
+// maxIter is interpreted as the maximum Taylor order. If tol > 0, the recursion
+// tolerances are only checked after at least 2*k2max iterations and the function
+// stops early once the newest Taylor term is smaller than tol (relative to the
+// current partial sum) for all cached keys.
+func (rg *RecursiveG) Recurse(delta12, delta34, r, eta float64, maxIter int, tol float64) {
+	if maxIter < 0 {
+		panic("Recurse: maxIter must be >= 0")
+	}
+
+	// Reset unique poles
+	rg.unique_poles_map = make(map[PoleKey]int)
+	rg.idxToKey = nil
+
+	// This call also populates rg.idxToKey via getOrAddPoleIdx.
+	polesData := rg.getAllPolesData(delta12, delta34)
+	numKeys := len(rg.idxToKey)
+	if numKeys == 0 {
+		panic("Recurse: idxToKey is empty")
+	}
+
+	// Precompute Taylor coefficients for htilde per ell.
+	coeffsByEll := make(map[int][]float64)
+	for _, key := range rg.idxToKey {
+		if _, ok := coeffsByEll[key.Ell]; ok {
+			continue
+		}
+		coeffs, err := rg.HTildeTaylorCoefficientsAtEta(delta12, delta34, key.Ell, eta, maxIter)
+		if err != nil {
+			panic(fmt.Sprintf("Recurse: failed to compute htilde Taylor coefficients (ell=%d, order=%d): %v", key.Ell, maxIter, err))
+		}
+		coeffsByEll[key.Ell] = coeffs
+	}
+
+	// r powers for evaluation of the partial sums.
+	rPows := make([]float64, maxIter+1)
+	rPows[0] = 1.0
+	for n := 1; n <= maxIter; n++ {
+		rPows[n] = rPows[n-1] * r
+	}
+
+	// hCoeffs[idx][n] stores the Taylor coefficient of h for idxToKey[idx] at order n.
+	hCoeffs := make([][]float64, numKeys)
+	for i := range hCoeffs {
+		hCoeffs[i] = make([]float64, maxIter+1)
+	}
+
+	// Evaluate partial sums at the requested r as we build coefficients.
+	hPartial := make([]float64, numKeys)
+
+	// Ensure tolerance is not checked until at least 2*k2max iterations
+	minIterForTolerance := 2 * rg.K2Max
+
+	converged := false
+	var maxFrac float64
+	for n := 0; n <= maxIter; n++ {
+		maxFrac = 0.0
+		for idx, key := range rg.idxToKey {
+			val := coeffsByEll[key.Ell][n]
+			for _, p := range polesData[key.Ell] {
+				if p.N > n {
+					continue
+				}
+				denom := key.Delta - p.Delta
+				if denom == 0.0 {
+					continue
+				}
+				val += p.C * hCoeffs[p.Idx][n-p.N] / denom
+			}
+			hCoeffs[idx][n] = val
+
+			term := val * rPows[n]
+			hPartial[idx] += term
+
+			if tol > 0 && n >= minIterForTolerance {
+				den := math.Abs(hPartial[idx])
+				if den < 1.0 {
+					den = 1.0
+				}
+				frac := math.Abs(term) / den
+				if frac > maxFrac {
+					maxFrac = frac
+				}
+			}
+		}
+
+		if tol > 0 && n >= minIterForTolerance && maxFrac < tol {
+			converged = true
+			break
+		}
+	}
+
+	if tol <= 0 {
+		converged = true
+	}
+	if !converged {
+		log.Printf("Recurse series did not reach tolerance: maxFrac=%v (tol=%v)\n", maxFrac, tol)
+	}
+
+	if rg.ConvergedCache == nil {
+		rg.ConvergedCache = make(map[REtaKey]*ConvergedBlockData)
+	}
+	rg.ConvergedCache[REtaKey{r, eta}] = &ConvergedBlockData{
+		R:          r,
+		Eta:        eta,
+		Delta12:    delta12,
+		Delta34:    delta34,
+		PolesData:  polesData,
+		HFinal:     append([]float64(nil), hPartial...),    // copy for safety
 		IndexToKey: append([]PoleKey(nil), rg.idxToKey...), // copy for safety
 		Converged:  converged,
 	}

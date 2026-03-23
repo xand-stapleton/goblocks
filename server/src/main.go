@@ -98,6 +98,11 @@ func internalRunRequest(req Request) ([]float64, error) {
 	switch strings.ToLower(strings.TrimSpace(req.Command)) {
 
 	case "recurse_and_evaluate_g":
+		// Validate that maxIter >= 2 * k2max
+		minIter := 2 * req.K2Max
+		if maxIter < minIter {
+			return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
+		}
 		// unchanged — your original code
 		if len(req.Deltas) != len(req.Ells) {
 			return nil, fmt.Errorf("deltas and ells must have the same length")
@@ -171,6 +176,11 @@ func internalRunRequest(req Request) ([]float64, error) {
 		return flat, nil
 
 	case "recurse_and_evaluate_f":
+		// Validate that maxIter >= 2 * k2max
+		minIter := 2 * req.K2Max
+		if maxIter < minIter {
+			return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
+		}
 		// unchanged — original logic
 		if len(req.Deltas) != len(req.Ells) {
 			return nil, fmt.Errorf("deltas and ells must have the same length")

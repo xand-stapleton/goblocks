@@ -5,6 +5,55 @@ import (
 	"math"
 )
 
+// phi1 evaluates derivatives of (1 - r^2)^(-nu) with respect to r.
+//
+// In this codebase, phi1 is used as part of the phi1*phi2*phi3 product in the
+// recursion.
+//
+// When rd.usePrecomputedPhi1 is enabled, a small precomputed table is used
+// *only* when it is valid (currently: crossing-symmetric point in d=3).
+// Outside that domain, this method automatically falls back to the analytic
+// formula.
+func (rd *RecursiveDerivatives) phi1(i, j int, r, nu float64) float64 {
+	// phi1 depends only on r, so derivatives in the second slot vanish.
+	if j != 0 {
+		return 0.0
+	}
+	if i < 0 {
+		panic(fmt.Errorf("phi1: derivative order i must be non-negative, got %d", i))
+	}
+
+	// Fast path: use precomputed table only when it is applicable.
+	if rd.usePrecomputedPhi1 && floatEquals(r, 3-2*math.Sqrt2) {
+		if val, err := rd.phi1NumericCache.Eval(i, j, r, nu); err == nil {
+			return val
+		}
+		// If the table doesn't support this (e.g. nu != 1/2), fall back to analytic.
+	}
+
+	// Analytic formula:
+	// d^i/dr^i (1-r^2)^(-nu)
+	// =
+	// i! * sum_{k=0}^{floor(i/2)}
+	//   (nu)_{i-k} / (k! (i-2k)!)
+	//   * (2r)^{i-2k}
+	//   * (1-r^2)^(-nu-i+k)
+	sum := 0.0
+	factI := rd.factorial(i)
+	oneMinusR2 := 1.0 - r*r
+
+	for k := 0; k <= i/2; k++ {
+		term := factI
+		term /= rd.factorial(k) * rd.factorial(i-2*k)
+		term *= rd.rf(nu, i-k)
+		term *= rd.Pow(2.0*r, float64(i-2*k))
+		term *= rd.Pow(oneMinusR2, -nu-float64(i)+float64(k))
+		sum += term
+	}
+
+	return sum
+}
+
 // Phi1Numeric precomputes derivatives of (1 - r^2)^(-nu)
 // at the crossing-symmetric point for nu = 1/2.
 type Phi1Numeric struct {
