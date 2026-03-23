@@ -11,10 +11,115 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+type Phi1DerivsConfig struct {
+	Nu       float64
+	MaxOrder int
+}
+
+func (c Phi1DerivsConfig) Hash() string {
+	b, _ := json.Marshal(c)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+type serialisablePhi1DerivsCache struct {
+	Config Phi1DerivsConfig
+	ByR    map[string][]float64
+}
+
+type Phi1DerivsDiskCache struct {
+	cfg  Phi1DerivsConfig
+	path string
+
+	mu  sync.RWMutex
+	byR map[string][]float64
+}
+
+func phi1RKey(r float64) string {
+	// 17 sig figs gives a round-trippable key for float64.
+	return strconv.FormatFloat(r, 'g', 17, 64)
+}
+
+func loadPhi1DerivsCache(path string) (*serialisablePhi1DerivsCache, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	dec := gob.NewDecoder(f)
+	var s serialisablePhi1DerivsCache
+	if err := dec.Decode(&s); err != nil {
+		return nil, err
+	}
+	if s.ByR == nil {
+		s.ByR = make(map[string][]float64)
+	}
+	return &s, nil
+}
+
+func savePhi1DerivsCache(path string, s *serialisablePhi1DerivsCache) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := gob.NewEncoder(f)
+	return enc.Encode(s)
+}
+
+func NewPhi1DerivsDiskCache(basePath string, cfg Phi1DerivsConfig) (*Phi1DerivsDiskCache, error) {
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(basePath, "phi1derivs_"+cfg.Hash()+".bin")
+	loaded, err := loadPhi1DerivsCache(path)
+	if err != nil {
+		// If it doesn't exist yet, start empty.
+		if os.IsNotExist(err) {
+			return &Phi1DerivsDiskCache{cfg: cfg, path: path, byR: make(map[string][]float64)}, nil
+		}
+		return nil, err
+	}
+
+	// If the file contents don't match, ignore and start fresh.
+	if loaded.Config != cfg {
+		return &Phi1DerivsDiskCache{cfg: cfg, path: path, byR: make(map[string][]float64)}, nil
+	}
+
+	return &Phi1DerivsDiskCache{cfg: cfg, path: path, byR: loaded.ByR}, nil
+}
+
+func (c *Phi1DerivsDiskCache) Config() Phi1DerivsConfig {
+	return c.cfg
+}
+
+func (c *Phi1DerivsDiskCache) Get(r float64) ([]float64, bool) {
+	key := phi1RKey(r)
+	c.mu.RLock()
+	v, ok := c.byR[key]
+	c.mu.RUnlock()
+	return v, ok
+}
+
+func (c *Phi1DerivsDiskCache) Put(r float64, derivs []float64) error {
+	key := phi1RKey(r)
+
+	c.mu.Lock()
+	c.byR[key] = derivs
+	s := &serialisablePhi1DerivsCache{Config: c.cfg, ByR: c.byR}
+	err := savePhi1DerivsCache(c.path, s)
+	c.mu.Unlock()
+	return err
+}
 
 type FunctionCache struct {
 	rfCache              sync.Map // key: [2]float64 -> float64
@@ -190,19 +295,42 @@ func (rd *RecursiveDerivatives) BuildLoadCache(basePath string) error {
 	if err == nil {
 		// Cache file exists – deserialize it into the in‑memory cache
 		rd.functionCache.LoadSerialisable(serial)
-		return nil
+	} else {
+		// No cache found (or loading failed); build a fresh one
+		if err := rd.PrepopulateCache(); err != nil {
+			return fmt.Errorf("prepopulating cache: %w", err)
+		}
+
+		// Serialize the newly built cache and write it to disk for future runs
+		if err := rd.SaveCache(path); err != nil {
+			return fmt.Errorf("saving new cache: %w", err)
+		}
 	}
 
-	// No cache found (or loading failed); build a fresh one
-	if err := rd.PrepopulateCache(); err != nil {
-		return fmt.Errorf("prepopulating cache: %w", err)
+	// Best-effort: load/setup a separate cache file for phi1 r-derivatives.
+	// Failures here should not prevent computation.
+	if rd.usePhi1DerivsDiskCache {
+		phi1Cfg := Phi1DerivsConfig{Nu: rd.recursiveG.Nu, MaxOrder: rd.maxPhi1DerivOrder()}
+		if phi1Cache, err := NewPhi1DerivsDiskCache(basePath, phi1Cfg); err == nil {
+			rd.phi1DerivsDiskCache = phi1Cache
+		} else {
+			rd.phi1DerivsDiskCache = nil
+		}
+	} else {
+		rd.phi1DerivsDiskCache = nil
 	}
 
-	// // Serialize the newly built cache and write it to disk for future runs
-	if err := rd.SaveCache(path); err != nil {
-		return fmt.Errorf("saving new cache: %w", err)
-	}
 	return nil
+}
+
+func (rd *RecursiveDerivatives) maxPhi1DerivOrder() int {
+	maxOrder := 0
+	for _, mn := range rd.derivativeOrdersREta {
+		if mn[0] > maxOrder {
+			maxOrder = mn[0]
+		}
+	}
+	return maxOrder
 }
 
 func (rd *RecursiveDerivatives) SaveCache(path string) error {

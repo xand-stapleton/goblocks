@@ -1,7 +1,14 @@
 bin/goblocks
+server/bin/goblocks
 tags
 .DS_Store
 __pycache__
+
+# On-disk caches (generated)
+server/bin/cache/
+server/src/cache/
+**/functioncache_*.bin
+**/phi1derivs_*.bin
 
 # Don't track headers and SOs. These need to be compiled.
 *.so

@@ -31,6 +31,41 @@ func (rd *RecursiveDerivatives) phi1(i, j int, r, nu float64) float64 {
 		// If the table doesn't support this (e.g. nu != 1/2), fall back to analytic.
 	}
 
+	// Disk-backed cache (separate file from functioncache_*.bin): stores all d^i/dr^i at a given r.
+	if rd.phi1DerivsDiskCache != nil {
+		cfg := rd.phi1DerivsDiskCache.Config()
+		if floatEquals(nu, cfg.Nu) && i <= cfg.MaxOrder {
+			if derivs, ok := rd.ensurePhi1DerivsCached(r, nu); ok && i < len(derivs) {
+				return derivs[i]
+			}
+		}
+	}
+
+	return rd.phi1Analytic(i, r, nu)
+}
+
+func (rd *RecursiveDerivatives) ensurePhi1DerivsCached(r, nu float64) ([]float64, bool) {
+	if rd.phi1DerivsDiskCache == nil {
+		return nil, false
+	}
+	cfg := rd.phi1DerivsDiskCache.Config()
+	if !floatEquals(nu, cfg.Nu) {
+		return nil, false
+	}
+
+	if derivs, ok := rd.phi1DerivsDiskCache.Get(r); ok && len(derivs) >= cfg.MaxOrder+1 {
+		return derivs, true
+	}
+
+	derivs := make([]float64, cfg.MaxOrder+1)
+	for i := 0; i <= cfg.MaxOrder; i++ {
+		derivs[i] = rd.phi1Analytic(i, r, nu)
+	}
+	_ = rd.phi1DerivsDiskCache.Put(r, derivs)
+	return derivs, true
+}
+
+func (rd *RecursiveDerivatives) phi1Analytic(i int, r, nu float64) float64 {
 	// Analytic formula:
 	// d^i/dr^i (1-r^2)^(-nu)
 	// =

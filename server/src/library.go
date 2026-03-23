@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"sync"
 	"unsafe"
+	"strings"
 )
 
 // Global handle table
@@ -24,6 +25,7 @@ type rdProperties struct {
 	EllMax             int    `json:"ell_max"`
 	D                  int    `json:"d"`
 	Nmax               int    `json:"nmax"`
+	UsePhi1Cache       *bool  `json:"use_phi1_cache"`
 	UsePrecomputedPhi1 bool   `json:"use_precomputed_phi1"`
 	UseNumericDerivs   bool   `json:"use_numeric_derivs"`
 	UseGPU             bool   `json:"use_gpu"`
@@ -128,7 +130,20 @@ func CreateRD(jsonStr *C.char) C.longlong {
 
 	rg := NewRecursiveG(rdProps.K1Max, rdProps.K2Max, rdProps.EllMin, rdProps.EllMax, rdProps.D)
 	rd := NewRecursiveDerivatives(*rg, rdProps.Nmax, rdProps.UsePrecomputedPhi1, rdProps.UseNumericDerivs, rdProps.UseGPU)
-	rd.BuildLoadCache(rdProps.CacheDir)
+
+	usePhi1Cache := true
+	if rdProps.UsePhi1Cache != nil {
+		usePhi1Cache = *rdProps.UsePhi1Cache
+	}
+	rd.usePhi1DerivsDiskCache = usePhi1Cache
+
+	cacheDir := strings.TrimSpace(rdProps.CacheDir)
+	if cacheDir == "" {
+		cacheDir = "cache"
+	}
+	if err := rd.BuildLoadCache(cacheDir); err != nil {
+		return 0
+	}
 	h := newHandle(rd)
 	return C.longlong(h)
 }

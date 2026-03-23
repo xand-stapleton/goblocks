@@ -82,6 +82,7 @@ type RecursiveDerivatives struct {
 	recursiveG         RecursiveG
 	usePrecomputedPhi1 bool
 	phi1NumericCache   *Phi1Numeric
+	usePhi1DerivsDiskCache bool
 	useGPU             bool
 
 	// Crossing symmetric point parameters
@@ -97,6 +98,7 @@ type RecursiveDerivatives struct {
 
 	// Caches
 	functionCache               *FunctionCache
+	phi1DerivsDiskCache         *Phi1DerivsDiskCache
 	cacheRMatrix                sync.Map
 	derivativeOrdersZZbarFPlus  [][2]int
 	derivativeOrdersZZbarFMinus [][2]int
@@ -131,6 +133,7 @@ func NewRecursiveDerivatives(recG RecursiveG, nMax int, usePrecomputedPhi1, useN
 		recursiveG:         recG,
 		usePrecomputedPhi1: usePrecomputedPhi1,
 		phi1NumericCache:   NewPhi1Numeric(),
+		usePhi1DerivsDiskCache: true,
 		useGPU:             useGPU,
 
 		// Crossing symmetric point coordinates
@@ -172,6 +175,10 @@ func NewRecursiveDerivatives(recG RecursiveG, nMax int, usePrecomputedPhi1, useN
 func (rd *RecursiveDerivatives) Recurse(delta12, delta34 float64, maxIterations int, tol float64) error {
 	// Clear caches
 	rd.ClearPhi123Cache()
+
+	// Precompute phi1(r) derivatives at rStar up to the configured max order.
+	// This avoids repeated analytic evaluation inside the parallel derivative loops.
+	_, _ = rd.ensurePhi1DerivsCached(rd.rStar, rd.recursiveG.Nu)
 
 	// --- 1. Initialization / setup ---
 	alpha := (1 + delta12 - delta34) / 2

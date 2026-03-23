@@ -57,6 +57,7 @@ type Request struct {
 	Nmax               int     `json:"nmax"`
 	Normalise          bool    `json:"normalise"`
 	CacheDir           string  `json:"cache_dir"`
+	UsePhi1Cache       *bool   `json:"use_phi1_cache"`
 	UsePrecomputedPhi1 bool    `json:"use_precomputed_phi1"`
 	UseNumericDerivs   bool    `json:"use_numeric_derivs"`
 	UseGPU             bool    `json:"use_gpu"`
@@ -73,6 +74,11 @@ type Request struct {
 }
 
 func internalRunRequest(req Request) ([]float64, error) {
+	usePhi1Cache := true
+	if req.UsePhi1Cache != nil {
+		usePhi1Cache = *req.UsePhi1Cache
+	}
+
 	// Attempt to load a persistent RD instance (optional)
 	var persistentRD *RecursiveDerivatives
 	if req.Handle != 0 {
@@ -82,6 +88,7 @@ func internalRunRequest(req Request) ([]float64, error) {
 		}
 		persistentRD = obj.(*RecursiveDerivatives)
 		if persistentRD.usePrecomputedPhi1 != req.UsePrecomputedPhi1 ||
+			persistentRD.usePhi1DerivsDiskCache != usePhi1Cache ||
 			persistentRD.recursiveG.K1Max != req.K1Max ||
 			persistentRD.recursiveG.K2Max != req.K2Max ||
 			persistentRD.recursiveG.EllMax != req.EllMax ||
@@ -280,13 +287,21 @@ func internalRunRequest(req Request) ([]float64, error) {
 	case "recurse_and_evaluate_df":
 		if persistentRD == nil {
 			// Backward-compatible: create a temporary local RD
+			cacheDir := strings.TrimSpace(req.CacheDir)
+			if cacheDir == "" {
+				cacheDir = "cache"
+			}
+
 			rg := NewRecursiveG(req.K1Max, req.K2Max, req.EllMin, req.EllMax, req.D)
 			rd := NewRecursiveDerivatives(
 				*rg,
 				req.Nmax, req.UsePrecomputedPhi1,
 				req.UseNumericDerivs, req.UseGPU,
 			)
-			rd.BuildLoadCache(req.CacheDir)
+			rd.usePhi1DerivsDiskCache = usePhi1Cache
+			if err := rd.BuildLoadCache(cacheDir); err != nil {
+				return nil, err
+			}
 			persistentRD = rd
 		}
 
@@ -334,13 +349,21 @@ func internalRunRequest(req Request) ([]float64, error) {
 	case "recurse_and_evaluate_dg":
 		if persistentRD == nil {
 			// Backward-compatible: create a temporary local RD
+			cacheDir := strings.TrimSpace(req.CacheDir)
+			if cacheDir == "" {
+				cacheDir = "cache"
+			}
+
 			rg := NewRecursiveG(req.K1Max, req.K2Max, req.EllMin, req.EllMax, req.D)
 			rd := NewRecursiveDerivatives(
 				*rg,
 				req.Nmax, req.UsePrecomputedPhi1,
 				req.UseNumericDerivs, req.UseGPU,
 			)
-			rd.BuildLoadCache(req.CacheDir)
+			rd.usePhi1DerivsDiskCache = usePhi1Cache
+			if err := rd.BuildLoadCache(cacheDir); err != nil {
+				return nil, err
+			}
 			persistentRD = rd
 		}
 
@@ -414,9 +437,14 @@ func internalRunRequest(req Request) ([]float64, error) {
 			)
 			persistentRD = rd
 		}
+		persistentRD.usePhi1DerivsDiskCache = usePhi1Cache
 
 		if err := persistentRD.BuildLoadCache(cacheDir); err != nil {
 			return nil, err
+		}
+		// Seed phi1 derivative cache at rStar so phi1derivs_*.bin is created.
+		if usePhi1Cache {
+			_, _ = persistentRD.ensurePhi1DerivsCached(persistentRD.rStar, persistentRD.recursiveG.Nu)
 		}
 
 		// Return a single success flag for machine-readable callers.
@@ -495,6 +523,7 @@ func main() {
 	usePrecomputedPhi1 := flag.Bool("use_precomputed_phi_1", true, "Use the precomputed phi 1 (cli mode)")
 	useNumericDerivs := flag.Bool("use_numeric_derivs", true, "Use the numeric derivatives where available (cli mode)")
 	cacheDir := flag.String("cache_dir", "cache", "Cache directory (cli mode)")
+	usePhi1Cache := flag.Bool("use_phi1_cache", true, "Enable disk caching of phi1 derivatives (cli mode)")
 
 	// list-style CLI flags
 	deltas := flag.String("deltas", "5.1", "comma-separated list of delta values (cli mode)")
@@ -513,6 +542,7 @@ func main() {
 	blockVals := parseStringList(*blocks)
 
 	var reqs []Request
+	usePhi1CacheVal := *usePhi1Cache
 	reqs = append(reqs, Request{
 		Command:    *command,
 		K1Max:      *k1max,
@@ -536,6 +566,7 @@ func main() {
 		Nmax:               *nMax,
 		Normalise:          *normalise,
 		CacheDir:           *cacheDir,
+		UsePhi1Cache:       &usePhi1CacheVal,
 		UsePrecomputedPhi1: *usePrecomputedPhi1,
 		UseNumericDerivs:   *useNumericDerivs,
 	})

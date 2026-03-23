@@ -2,6 +2,8 @@ package main
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -53,6 +55,50 @@ func TestPhi1PrecomputedPanicsOutsideCrossingSymmetricPoint(t *testing.T) {
 		gotAna := rdAna.phi1(i, 0, r, nu)
 		assertCloseAbsRel(t, gotPre, gotAna, 1e-13, 1e-13, "phi1 precomputed fallback vs analytic (i="+itoa(i)+")")
 	}
+}
+
+func TestPhi1DerivsDiskCacheRoundTrip(t *testing.T) {
+	rg := NewRecursiveG(10, 10, 0, 10, 3)
+	rd1 := NewRecursiveDerivatives(*rg, 4, false, false, false)
+	cacheDir := t.TempDir()
+
+	// Avoid the expensive PrepopulateCache() path by pre-creating an empty function cache file.
+	// This keeps the test focused on phi1's dedicated cache file.
+	hash := rd1.NewRDConfig().Hash()
+	functionPath := filepath.Join(cacheDir, "functioncache_"+hash+".bin")
+	if err := SaveCache(functionPath, &SerialisableFunctionCache{}); err != nil {
+		t.Fatalf("failed to write dummy function cache: %v", err)
+	}
+
+	if err := rd1.BuildLoadCache(cacheDir); err != nil {
+		t.Fatalf("BuildLoadCache: %v", err)
+	}
+
+	r := rd1.rStar
+	nu := rd1.recursiveG.Nu
+	got1 := rd1.phi1(10, 0, r, nu)
+
+	phiCfg := Phi1DerivsConfig{Nu: nu, MaxOrder: rd1.maxPhi1DerivOrder()}
+	phiPath := filepath.Join(cacheDir, "phi1derivs_"+phiCfg.Hash()+".bin")
+	if _, err := os.Stat(phiPath); err != nil {
+		t.Fatalf("expected phi1 cache file to exist at %s: %v", phiPath, err)
+	}
+
+	loaded, err := loadPhi1DerivsCache(phiPath)
+	if err != nil {
+		t.Fatalf("loadPhi1DerivsCache: %v", err)
+	}
+	if _, ok := loaded.ByR[phi1RKey(r)]; !ok {
+		t.Fatalf("expected cached derivatives for r=%g", r)
+	}
+
+	rd2 := NewRecursiveDerivatives(*rg, 4, false, false, false)
+	if err := rd2.BuildLoadCache(cacheDir); err != nil {
+		t.Fatalf("BuildLoadCache (2): %v", err)
+	}
+	got2 := rd2.phi1(10, 0, r, nu)
+
+	assertCloseAbsRel(t, got2, got1, 0, 1e-15, "phi1 disk-cache round trip")
 }
 
 func itoa(x int) string {
