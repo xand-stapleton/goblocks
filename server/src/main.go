@@ -97,20 +97,18 @@ func internalRunRequest(req Request) ([]float64, error) {
 		}
 	}
 
-	// ---- Begin existing logic ---- //
-
 	maxIter := defaultIfZeroInt(req.MaxIter, 100)
 	tol := defaultIfZeroFloat(req.Tol, 1e-6)
+
+	// Validate that maxIter >= 2 * k2max
+	minIter := 2 * req.K2Max
+	if maxIter < minIter {
+		return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
+	}
 
 	switch strings.ToLower(strings.TrimSpace(req.Command)) {
 
 	case "recurse_and_evaluate_g":
-		// Validate that maxIter >= 2 * k2max
-		minIter := 2 * req.K2Max
-		if maxIter < minIter {
-			return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
-		}
-		// unchanged — your original code
 		if len(req.Deltas) != len(req.Ells) {
 			return nil, fmt.Errorf("deltas and ells must have the same length")
 		}
@@ -183,12 +181,6 @@ func internalRunRequest(req Request) ([]float64, error) {
 		return flat, nil
 
 	case "recurse_and_evaluate_f":
-		// Validate that maxIter >= 2 * k2max
-		minIter := 2 * req.K2Max
-		if maxIter < minIter {
-			return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
-		}
-		// unchanged — original logic
 		if len(req.Deltas) != len(req.Ells) {
 			return nil, fmt.Errorf("deltas and ells must have the same length")
 		}
@@ -284,68 +276,6 @@ func internalRunRequest(req Request) ([]float64, error) {
 
 		return flat, nil
 
-	case "recurse_and_evaluate_df":
-		if persistentRD == nil {
-			// Backward-compatible: create a temporary local RD
-			cacheDir := strings.TrimSpace(req.CacheDir)
-			if cacheDir == "" {
-				cacheDir = "cache"
-			}
-
-			rg := NewRecursiveG(req.K1Max, req.K2Max, req.EllMin, req.EllMax, req.D)
-			rd := NewRecursiveDerivatives(
-				*rg,
-				req.Nmax, req.UsePrecomputedPhi1,
-				req.UseNumericDerivs, req.UseGPU,
-			)
-			rd.usePhi1DerivsDiskCache = usePhi1Cache
-			if err := rd.BuildLoadCache(cacheDir); err != nil {
-				return nil, err
-			}
-			persistentRD = rd
-		}
-
-		if len(req.Deltas) != len(req.Ells) {
-			return nil, fmt.Errorf("deltas and ells must have the same length")
-		}
-
-		blockTypes := make([]BlockType, 0, len(req.BlockTypes))
-		for _, btStr := range req.BlockTypes {
-			bt, err := parseBlockType(btStr)
-			if err != nil {
-				return nil, err
-			}
-			blockTypes = append(blockTypes, bt)
-		}
-
-		result, err := persistentRD.RecurseAndEvaluateDF(
-			blockTypes,
-			req.Delta12,
-			req.Delta34,
-			req.DeltaAve23,
-			req.Deltas,
-			req.Ells,
-			req.MaxIter,
-			req.Tol,
-			req.Normalise,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		flat := flatten3D(result)
-
-		// Optionally append convergence mask
-		if req.ReturnConvergenceMask {
-			if persistentRD.convergedData != nil && persistentRD.convergedData.Converged {
-				flat = append(flat, 1.0)
-			} else {
-				flat = append(flat, 0.0)
-			}
-		}
-
-		return flat, nil
-
 	case "recurse_and_evaluate_dg":
 		if persistentRD == nil {
 			// Backward-compatible: create a temporary local RD
@@ -377,7 +307,6 @@ func internalRunRequest(req Request) ([]float64, error) {
 			req.Deltas,
 			req.Ells,
 			req.MaxIter,
-			req.Tol,
 		)
 		if err != nil {
 			return nil, err
@@ -419,6 +348,50 @@ func internalRunRequest(req Request) ([]float64, error) {
 		}
 
 		return flat, nil
+
+	case "recurse_and_evaluate_df":
+		// Strategy A derivative blocks (order-by-order r-series)
+		if persistentRD == nil {
+			rg := NewRecursiveG(req.K1Max, req.K2Max, req.EllMin, req.EllMax, req.D)
+			rd := NewRecursiveDerivatives(
+				*rg,
+				req.Nmax, req.UsePrecomputedPhi1,
+				req.UseNumericDerivs, req.UseGPU,
+			)
+			rd.BuildLoadCache(req.CacheDir)
+			persistentRD = rd
+		}
+
+		if len(req.Deltas) != len(req.Ells) {
+			return nil, fmt.Errorf("deltas and ells must have the same length")
+		}
+
+		blockTypes := make([]BlockType, 0, len(req.BlockTypes))
+		for _, btStr := range req.BlockTypes {
+			bt, err := parseBlockType(btStr)
+			if err != nil {
+				return nil, err
+			}
+			blockTypes = append(blockTypes, bt)
+		}
+
+		rOrder := defaultIfZeroInt(maxIter, 30)
+
+		result, err := persistentRD.RecurseAndEvaluateDF(
+			blockTypes,
+			req.Delta12,
+			req.Delta34,
+			req.DeltaAve23,
+			req.Deltas,
+			req.Ells,
+			rOrder,
+			req.Normalise,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return flatten3D(result), nil
 
 	case "build_cache":
 		cacheDir := strings.TrimSpace(req.CacheDir)
