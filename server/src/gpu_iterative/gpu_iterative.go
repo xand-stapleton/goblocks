@@ -3,7 +3,7 @@
 package iterativegpu
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../lib -lgpuiter -lcublas -lcudart
+#cgo LDFLAGS: -L${SRCDIR}/../../lib -lgpuiter -lrmatrix -lcublas -lcudart
 #include <stdlib.h>
 #include <string.h>
 
