@@ -6,7 +6,6 @@ package iterativegpu
 
 import (
 	"errors"
-	"unsafe"
 )
 
 // Go-side helper types (mirrors gpu build file API).
@@ -33,11 +32,3 @@ func GPURecurseHCoeffs(
 ) ([]float64, error) {
 	return nil, errors.New("GPU support not compiled; rebuild with -tags gpu to enable")
 }
-
-func BuildRMatrixOnGPU(numDerivs int, rStar float64, derivativeOrdersREta [][2]int, rPower float64) unsafe.Pointer {
-	return nil
-}
-
-func FreeRMatrix(rPower float64) {}
-
-func FreeAllRMatrices() {}

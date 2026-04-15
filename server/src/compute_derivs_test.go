@@ -1,9 +1,6 @@
 package main
 
-import (
-	"math"
-	"testing"
-)
+import "testing"
 
 func expectedDFDefaultsNmax8() []float64 {
 	return []float64{
@@ -50,20 +47,8 @@ func runDFDefaultsNmax8(t *testing.T, useNumericDerivs bool) []float64 {
 	return flatten3D(got3D)
 }
 
-func assertCloseSlice(t *testing.T, got, expected []float64, tol float64, label string) {
-	t.Helper()
-	if len(got) != len(expected) {
-		t.Fatalf("%s length mismatch: got %d values, expected %d", label, len(got), len(expected))
-	}
-	for i := range expected {
-		if math.Abs(got[i]-expected[i]) > tol {
-			t.Fatalf("%s mismatch at index %d: got %.18e, expected %.18e (|diff|=%.3e)", label, i, got[i], expected[i], math.Abs(got[i]-expected[i]))
-		}
-	}
-}
-
 func TestRecurseAndEvaluateDFDefaultsNmax8KnownGood(t *testing.T) {
 	got := runDFDefaultsNmax8(t, false)
 	expected := expectedDFDefaultsNmax8()
-	assertCloseSlice(t, got, expected, 1e-14, "non-numeric derivs vs expected")
+	assertCloseSliceAbs(t, got, expected, 1e-14, "non-numeric derivs vs expected")
 }

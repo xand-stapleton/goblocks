@@ -7,19 +7,6 @@ import (
 	"testing"
 )
 
-func assertCloseAbsRel(t *testing.T, got, want, absTol, relTol float64, label string) {
-	t.Helper()
-	diff := math.Abs(got - want)
-	if diff <= absTol {
-		return
-	}
-	scale := math.Max(1.0, math.Max(math.Abs(got), math.Abs(want)))
-	if diff/scale <= relTol {
-		return
-	}
-	t.Fatalf("%s: got %.18e want %.18e (|diff|=%.3e)", label, got, want, diff)
-}
-
 func TestPhi1PrecomputedMatchesAnalyticAtCrossingSymmetricPointD3(t *testing.T) {
 	rg := NewRecursiveG(10, 10, 0, 10, 3)
 
