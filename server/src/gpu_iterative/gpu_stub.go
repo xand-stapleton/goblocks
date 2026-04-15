@@ -6,20 +6,15 @@ package iterativegpu
 
 import (
 	"errors"
-
-	"gonum.org/v1/gonum/mat"
 )
 
-// GPUIterativeUpdate is a stub used when GPU support is not compiled.
-// It returns an error to indicate that GPU functionality is unavailable.
-func GPUIterativeUpdate(
-	dg, dgTilde *mat.Dense,
+func GPURecurseHCoeffs(
 	keys []KeyDataGo,
 	poles []PolesDataGo,
 	polesOffset []int,
-	Rlist [][]float64,
-	maxIter int,
-	tol float64,
-) (*mat.Dense, bool, error) {
-	return nil, false, errors.New("GPU support not compiled; rebuild with -tags gpu to enable")
+	htildeCoeffs []float64,
+	numEtaDerivs int,
+	rOrder int,
+) ([]float64, error) {
+	return nil, errors.New("GPU support not compiled; rebuild with -tags gpu to enable")
 }

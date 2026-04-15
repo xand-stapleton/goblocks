@@ -6,7 +6,8 @@ import (
 	"runtime"
 	"sync"
 
-	"gonum.org/v1/gonum/blas/blas64"
+	iterativegpu "goblocks/gpu_iterative"
+
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -216,32 +217,16 @@ func (rd *RecursiveDerivatives) Recurse(delta12, delta34 float64, rOrder int) er
 
 	// --- 3. r-coefficient recursion (order by order) ---
 	// hCoeffs[colIdx][etaDeriv][rOrder]
-	hCoeffs := make([][][]float64, numPoles)
-	for i := range hCoeffs {
-		hCoeffs[i] = make([][]float64, numEtaDerivs)
-		for q := range hCoeffs[i] {
-			hCoeffs[i][q] = make([]float64, rOrder+1)
+	var hCoeffs [][][]float64
+	if rd.useGPU {
+		gpuHCoeffs, err := rd.computeHCoeffsGPU(htildeCoeffsByEll, polesData, numEtaDerivs, rOrder)
+		if err == nil {
+			hCoeffs = gpuHCoeffs
+		} else {
+			hCoeffs = rd.computeHCoeffsCPU(htildeCoeffsByEll, polesData, numEtaDerivs, rOrder)
 		}
-	}
-
-	for p := 0; p <= rOrder; p++ {
-		for idx, key := range rd.recursiveG.idxToKey {
-			for q := 0; q < numEtaDerivs; q++ {
-				val := htildeCoeffsByEll[key.Ell][q][p]
-
-				for _, pole := range polesData[key.Ell] {
-					if pole.N > p {
-						continue
-					}
-					denom := key.Delta - pole.Delta
-					if denom == 0.0 {
-						continue
-					}
-					val += pole.C * hCoeffs[pole.Idx][q][p-pole.N] / denom
-				}
-				hCoeffs[idx][q][p] = val
-			}
-		}
+	} else {
+		hCoeffs = rd.computeHCoeffsCPU(htildeCoeffsByEll, polesData, numEtaDerivs, rOrder)
 	}
 
 	// --- 4. Convert r-coefficients to derivatives at rStar ---
@@ -370,117 +355,108 @@ func (rd *RecursiveDerivatives) Recurse(delta12, delta34 float64, rOrder int) er
 	return nil
 }
 
-// cpuIterativeUpdate performs iterative update using CPU parallelization
-func (rd *RecursiveDerivatives) cpuIterativeUpdate(
-	dg, dgTilde *mat.Dense,
-	RMap map[[2]int]*mat.Dense,
+func (rd *RecursiveDerivatives) computeHCoeffsCPU(
+	htildeCoeffsByEll map[int][][]float64,
 	polesData map[int][]PolesData,
-	maxIterations int,
-	tol float64,
-) (*mat.Dense, bool) {
-	m, n := dg.Dims()
-	dgNew := mat.NewDense(m, n, nil)
-	dgCopy := mat.DenseCopyOf(dg)
-	converged := false
-
-	// Number of workers = #CPUs
-	numWorkers := runtime.GOMAXPROCS(0)
-
-	type job struct {
-		j   int
-		key PoleKey
+	numEtaDerivs int,
+	rOrder int,
+) [][][]float64 {
+	numPoles := len(rd.recursiveG.idxToKey)
+	hCoeffs := make([][][]float64, numPoles)
+	for i := range hCoeffs {
+		hCoeffs[i] = make([][]float64, numEtaDerivs)
+		for q := range hCoeffs[i] {
+			hCoeffs[i][q] = make([]float64, rOrder+1)
+		}
 	}
 
-	jobs := make(chan job, n)
+	for p := 0; p <= rOrder; p++ {
+		for idx, key := range rd.recursiveG.idxToKey {
+			for q := 0; q < numEtaDerivs; q++ {
+				val := htildeCoeffsByEll[key.Ell][q][p]
 
-	// Workers computations for columns j
-	worker := func() {
-		// Thread-local buffers for efficient computation
-		colUpdate := mat.NewVecDense(m, nil)
-		tempVec := mat.NewVecDense(m, nil)
-		var term mat.VecDense
-
-		for task := range jobs {
-			j, key := task.j, task.key
-
-			// Reset thread-local accumulator
-			for ii := 0; ii < m; ii++ {
-				colUpdate.SetVec(ii, 0)
-			}
-
-			// Compute update for this column j
-			for _, pole := range polesData[key.Ell] {
-				R := RMap[[2]int{j, pole.Idx}]
-
-				// tempVec = dgCopy[:, pole.Idx]
-				for ii := 0; ii < m; ii++ {
-					tempVec.SetVec(ii, dgCopy.At(ii, pole.Idx))
+				for _, pole := range polesData[key.Ell] {
+					if pole.N > p {
+						continue
+					}
+					denom := key.Delta - pole.Delta
+					if denom == 0.0 {
+						continue
+					}
+					val += pole.C * hCoeffs[pole.Idx][q][p-pole.N] / denom
 				}
-
-				term.MulVec(R, tempVec)
-
-				scale := pole.C / (key.Delta - pole.Delta)
-				blas64.Scal(scale, term.RawVector())
-
-				// colUpdate += term
-				for ii := 0; ii < m; ii++ {
-					colUpdate.SetVec(ii, colUpdate.AtVec(ii)+term.AtVec(ii))
-				}
-			}
-
-			// Write into dgNew column
-			for ii := 0; ii < m; ii++ {
-				dgNew.Set(ii, j, dgNew.At(ii, j)+colUpdate.AtVec(ii))
+				hCoeffs[idx][q][p] = val
 			}
 		}
 	}
 
-	for iter := 0; iter < maxIterations; iter++ {
-		dgNew.Copy(dgTilde)
+	return hCoeffs
+}
 
-		// Spawn worker pool
-		var wg sync.WaitGroup
-		wg.Add(numWorkers)
-		for w := 0; w < numWorkers; w++ {
-			go func() {
-				defer wg.Done()
-				worker()
-			}()
-		}
-
-		// Push column jobs
-		for j, key := range rd.recursiveG.idxToKey {
-			jobs <- job{j, key}
-		}
-		close(jobs)
-		wg.Wait()
-
-		// -----------------------------------------
-		// Parallel convergence check
-		// -----------------------------------------
-		maxDiff := 0.0
-		for i := 0; i < m; i++ {
-			for j := 0; j < n; j++ {
-				d := math.Abs(dgNew.At(i, j)-dgCopy.At(i, j)) / dgCopy.At(i, j)
-				if d > maxDiff {
-					maxDiff = d
-				}
-			}
-		}
-
-		if maxDiff < tol {
-			converged = true
-			break
-		}
-
-		// Prepare for next iteration
-		dgCopy, dgNew = dgNew, dgCopy
-
-		// Re-open jobs channel for next iteration
-		jobs = make(chan job, n)
+func (rd *RecursiveDerivatives) computeHCoeffsGPU(
+	htildeCoeffsByEll map[int][][]float64,
+	polesData map[int][]PolesData,
+	numEtaDerivs int,
+	rOrder int,
+) ([][][]float64, error) {
+	numPoles := len(rd.recursiveG.idxToKey)
+	if numPoles == 0 {
+		return nil, fmt.Errorf("no poles available for recursion")
 	}
 
-	return dgCopy, converged
+	keys := make([]iterativegpu.KeyDataGo, numPoles)
+	htildePacked := make([]float64, numPoles*numEtaDerivs*(rOrder+1))
+	polesOffset := make([]int, numPoles+1)
+	flatPoles := make([]iterativegpu.PolesDataGo, 0)
+
+	for j, key := range rd.recursiveG.idxToKey {
+		keys[j] = iterativegpu.KeyDataGo{Ell: key.Ell, Delta: key.Delta}
+
+		base := j * numEtaDerivs * (rOrder + 1)
+		htCoeffs, ok := htildeCoeffsByEll[key.Ell]
+		if !ok {
+			return nil, fmt.Errorf("missing htilde coefficients for ell=%d", key.Ell)
+		}
+		if len(htCoeffs) < numEtaDerivs {
+			return nil, fmt.Errorf("insufficient eta derivatives for ell=%d", key.Ell)
+		}
+		for q := 0; q < numEtaDerivs; q++ {
+			if len(htCoeffs[q]) < rOrder+1 {
+				return nil, fmt.Errorf("insufficient r-order coefficients for ell=%d, q=%d", key.Ell, q)
+			}
+			copy(htildePacked[base+q*(rOrder+1):base+(q+1)*(rOrder+1)], htCoeffs[q][:rOrder+1])
+		}
+
+		colPoles := polesData[key.Ell]
+		polesOffset[j+1] = polesOffset[j] + len(colPoles)
+		for _, p := range colPoles {
+			flatPoles = append(flatPoles, iterativegpu.PolesDataGo{
+				N:     p.N,
+				Delta: p.Delta,
+				Ell:   p.Ell,
+				C:     p.C,
+				Idx:   p.Idx,
+			})
+		}
+	}
+
+	hPacked, err := iterativegpu.GPURecurseHCoeffs(keys, flatPoles, polesOffset, htildePacked, numEtaDerivs, rOrder)
+	if err != nil {
+		return nil, err
+	}
+
+	hCoeffs := make([][][]float64, numPoles)
+	for j := 0; j < numPoles; j++ {
+		hCoeffs[j] = make([][]float64, numEtaDerivs)
+		base := j * numEtaDerivs * (rOrder + 1)
+		for q := 0; q < numEtaDerivs; q++ {
+			start := base + q*(rOrder+1)
+			end := start + (rOrder + 1)
+			hCoeffs[j][q] = append([]float64(nil), hPacked[start:end]...)
+		}
+	}
+
+	return hCoeffs, nil
 }
 
 // Evaluate evaluates the recursion result for a specific spin and scaling dimension.
