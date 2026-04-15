@@ -99,12 +99,7 @@ func internalRunRequest(req Request) ([]float64, error) {
 
 	maxIter := defaultIfZeroInt(req.MaxIter, 100)
 	tol := defaultIfZeroFloat(req.Tol, 1e-6)
-
-	// Validate that maxIter >= 2 * k2max
 	minIter := 2 * req.K2Max
-	if maxIter < minIter {
-		return nil, fmt.Errorf("max_iterations (%d) must be at least 2 * k2max (%d)", maxIter, minIter)
-	}
 
 	switch strings.ToLower(strings.TrimSpace(req.Command)) {
 
@@ -277,6 +272,11 @@ func internalRunRequest(req Request) ([]float64, error) {
 		return flat, nil
 
 	case "recurse_and_evaluate_dg":
+		derivIter := maxIter
+		if derivIter < minIter {
+			derivIter = minIter
+		}
+
 		if persistentRD == nil {
 			// Backward-compatible: create a temporary local RD
 			cacheDir := strings.TrimSpace(req.CacheDir)
@@ -306,7 +306,7 @@ func internalRunRequest(req Request) ([]float64, error) {
 			req.Delta34,
 			req.Deltas,
 			req.Ells,
-			req.MaxIter,
+			derivIter,
 		)
 		if err != nil {
 			return nil, err
@@ -350,6 +350,11 @@ func internalRunRequest(req Request) ([]float64, error) {
 		return flat, nil
 
 	case "recurse_and_evaluate_df":
+		derivIter := maxIter
+		if derivIter < minIter {
+			derivIter = minIter
+		}
+
 		// Strategy A derivative blocks (order-by-order r-series)
 		if persistentRD == nil {
 			rg := NewRecursiveG(req.K1Max, req.K2Max, req.EllMin, req.EllMax, req.D)
@@ -375,7 +380,7 @@ func internalRunRequest(req Request) ([]float64, error) {
 			blockTypes = append(blockTypes, bt)
 		}
 
-		rOrder := defaultIfZeroInt(maxIter, 30)
+		rOrder := derivIter
 
 		result, err := persistentRD.RecurseAndEvaluateDF(
 			blockTypes,
@@ -495,6 +500,7 @@ func main() {
 	normalise := flag.Bool("normalise", true, "Normalise the derivative block (cli mode)")
 	usePrecomputedPhi1 := flag.Bool("use_precomputed_phi_1", true, "Use the precomputed phi 1 (cli mode)")
 	useNumericDerivs := flag.Bool("use_numeric_derivs", true, "Use the numeric derivatives where available (cli mode)")
+	useGPU := flag.Bool("use_gpu", false, "Use GPU acceleration for derivative recursion when available (cli mode)")
 	cacheDir := flag.String("cache_dir", "cache", "Cache directory (cli mode)")
 	usePhi1Cache := flag.Bool("use_phi1_cache", true, "Enable disk caching of phi1 derivatives (cli mode)")
 
@@ -542,6 +548,7 @@ func main() {
 		UsePhi1Cache:       &usePhi1CacheVal,
 		UsePrecomputedPhi1: *usePrecomputedPhi1,
 		UseNumericDerivs:   *useNumericDerivs,
+		UseGPU:             *useGPU,
 	})
 
 	allResults := runBatch(reqs)
