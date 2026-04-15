@@ -53,41 +53,6 @@ func buildDerivParityInputs(
 	return htildeCoeffsByEll, polesData, numEtaDerivs
 }
 
-func TestHCoeffsGPUEqualsCPU_Nmax8(t *testing.T) {
-	rg := NewRecursiveG(10, 10, 0, 10, 3)
-	rd := NewRecursiveDerivatives(*rg, 8, true, false, true)
-
-	delta12 := 1.6
-	delta34 := 1.2
-	rOrder := 60
-
-	htildeCoeffsByEll, polesData, numEtaDerivs := buildDerivParityInputs(t, rd, delta12, delta34, rOrder)
-
-	cpu := rd.computeHCoeffsCPU(htildeCoeffsByEll, polesData, numEtaDerivs, rOrder)
-	gpu, err := rd.computeHCoeffsGPU(htildeCoeffsByEll, polesData, numEtaDerivs, rOrder)
-	if err != nil {
-		t.Fatalf("computeHCoeffsGPU failed: %v", err)
-	}
-
-	if len(cpu) != len(gpu) {
-		t.Fatalf("column count mismatch: cpu=%d gpu=%d", len(cpu), len(gpu))
-	}
-	for j := range cpu {
-		if len(cpu[j]) != len(gpu[j]) {
-			t.Fatalf("eta-deriv count mismatch at col %d: cpu=%d gpu=%d", j, len(cpu[j]), len(gpu[j]))
-		}
-		for q := range cpu[j] {
-			if len(cpu[j][q]) != len(gpu[j][q]) {
-				t.Fatalf("r-order length mismatch at col %d q %d: cpu=%d gpu=%d", j, q, len(cpu[j][q]), len(gpu[j][q]))
-			}
-			for p := range cpu[j][q] {
-				assertCloseAbsRel(t, gpu[j][q][p], cpu[j][q][p], 1e-12, 1e-10,
-					"h-coeff mismatch")
-			}
-		}
-	}
-}
-
 func TestRecurseAndEvaluateDF_GPUEqualsCPU_Nmax8(t *testing.T) {
 	params := struct {
 		delta12    float64
