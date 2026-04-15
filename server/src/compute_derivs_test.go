@@ -41,7 +41,6 @@ func runDFDefaultsNmax8(t *testing.T, useNumericDerivs bool) []float64 {
 		[]float64{5.1},
 		[]int{3},
 		100,
-		1e-4,
 		true,
 	)
 	if err != nil {
