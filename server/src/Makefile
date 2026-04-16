@@ -10,14 +10,11 @@ LIBS       := -L$(CUDA_PATH)/lib64 -lcublas -lcudart
 # GPU sources
 # ========================
 GPU_ITER_SRC    := gpu_iterative/iterative_update.cu
-GPU_RMATRIX_SRC := gpu_iterative/rmatrix_kernel.cu
 
 GPU_ITER_OBJ    := $(patsubst %.cu,%.o,$(GPU_ITER_SRC))
-GPU_RMATRIX_OBJ := $(patsubst %.cu,%.o,$(GPU_RMATRIX_SRC))
 
 GPU_OUTDIR      := ../lib
 GPU_ITER_LIB    := $(GPU_OUTDIR)/libgpuiter.so
-GPU_RMATRIX_LIB := $(GPU_OUTDIR)/librmatrix.so
 
 # ========================
 # Go project settings
@@ -47,10 +44,6 @@ ifeq ($(GPU),1)
 	# Build iterative update library
 	nvcc $(NVCCFLAGS) -c $(GPU_ITER_SRC) -o $(GPU_ITER_OBJ)
 	g++ $(CXXFLAGS) -shared -o $(GPU_ITER_LIB) $(GPU_ITER_OBJ) $(LIBS)
-
-	# Build rmatrix library
-	nvcc $(NVCCFLAGS) -c $(GPU_RMATRIX_SRC) -o $(GPU_RMATRIX_OBJ)
-	g++ $(CXXFLAGS) -shared -o $(GPU_RMATRIX_LIB) $(GPU_RMATRIX_OBJ) $(LIBS)
 endif
 
 go_build:
@@ -73,7 +66,7 @@ clean:
 	rm -f ../bin/$(BINARY_NAME) ../lib/$(LIBRARY_NAME).so
 ifeq ($(GPU),1)
 	@echo "Cleaning GPU artifacts..."
-	rm -f $(GPU_ITER_OBJ) $(GPU_RMATRIX_OBJ) $(GPU_ITER_LIB) $(GPU_RMATRIX_LIB)
+	rm -f $(GPU_ITER_OBJ) $(GPU_ITER_LIB)
 endif
 
 # ========================

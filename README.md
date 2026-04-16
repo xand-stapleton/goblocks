@@ -105,6 +105,8 @@ Usage of ./bin/goblocks:
         tolerance (cli mode) (default 0.0001)
   -use_numeric_derivs
         Use the numeric derivatives where available (cli mode)
+  -use_gpu
+        Use GPU acceleration for derivative recursion when available (cli mode)
   -use_precomputed_phi_1
         Use the precomputed phi 1 (cli mode) (default true)
   -zs string
