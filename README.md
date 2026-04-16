@@ -60,7 +60,7 @@ The server allows single shot evaluations of both the points-based and crossing 
 ## Example usage (CLI)
 
 **From the CLI (singleshot)**
-```bash
+```
 
 Usage of ./bin/goblocks:
   -blocks string
